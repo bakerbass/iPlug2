@@ -41,9 +41,18 @@ Open the `.sln` file in Visual Studio:
 [ProjectName].sln
 ```
 
-Build from IDE or command line:
-```cmd
-msbuild [ProjectName].sln /p:Configuration=Release /p:Platform=x64
+Build from IDE or bash command line:
+```bash
+cd [ProjectFolder]
+MSBuild.exe [ProjectName].sln //p:Configuration=Release //p:Platform=x64 //t:[Target]
+```
+
+**Note:** In Git bash, use `//` instead of `/` for MSBuild flags to prevent path expansion.
+**Targets:** `LoopRouter-app`, `LoopRouter-vst3`, `LoopRouter-clap`, `LoopRouter-aax`, etc.
+
+To filter output to errors only:
+```bash
+MSBuild.exe [ProjectName].sln //p:Configuration=Release //p:Platform=x64 //t:[Target] //nologo //v:minimal 2>&1 | grep -E "error|FAILED|succeeded"
 ```
 
 ## Tips
