@@ -82,6 +82,7 @@ private:
   wil::com_ptr<ICoreWebView2Controller> mWebViewCtrlr;
   wil::com_ptr<ICoreWebView2> mCoreWebView;
   wil::com_ptr<ICoreWebView2Environment> mWebViewEnvironment;
+  EventRegistrationToken mAcceleratorKeyPressedToken;
   EventRegistrationToken mWebMessageReceivedToken;
   EventRegistrationToken mNavigationStartingToken;
   EventRegistrationToken mNavigationCompletedToken;
@@ -91,7 +92,7 @@ private:
   EventRegistrationToken mStateChangedToken;
   bool mShowOnLoad = true;
   WDL_String mWebRoot;
-  RECT mWebViewBounds;
+  RECT mWebViewBounds {};
 };
 
 END_IPLUG_NAMESPACE
@@ -148,6 +149,22 @@ void* IWebViewImpl::OpenWebView(void* pParent, float,float,float,float,float)
 
             mWebViewCtrlr->put_IsVisible(mShowOnLoad);
 
+            // Suppress WebView2's controller-level Tab focus navigation. Without this, pressing Tab
+            // (or otherwise letting WebView2 move focus out of the page) hands keyboard focus to the
+            // host window in a state that softlocks the DAW (mouse/keyboard stop responding). JS
+            // preventDefault only stops in-page focus moves, not this controller-level behavior, so
+            // we mark Tab handled here. The page still receives the keydown (our JS listener runs).
+            mWebViewCtrlr->add_AcceleratorKeyPressed(
+              Callback<ICoreWebView2AcceleratorKeyPressedEventHandler>(
+                [](ICoreWebView2Controller* sender, ICoreWebView2AcceleratorKeyPressedEventArgs* args) -> HRESULT {
+                  UINT key = 0;
+                  args->get_VirtualKey(&key);
+                  if (key == VK_TAB)
+                    args->put_Handled(TRUE);
+                  return S_OK;
+                }).Get(),
+              &mAcceleratorKeyPressedToken);
+
             const auto enableDevTools = mIWebView->GetEnableDevTools();
 
             ICoreWebView2Settings* Settings;
@@ -166,14 +183,18 @@ void* IWebViewImpl::OpenWebView(void* pParent, float,float,float,float,float)
                 return S_OK;
               }).Get());
 
-            // this script receives global key down events and forwards them to the C++ side
+            // this script receives global key down events and forwards them to the C++ side.
+            // Exclude space (keyCode 32) and preventDefault() on forwarded keys to match macOS:
+            // without this, WebView2's default key handling (Space activating a focused element,
+            // Tab trapping focus) leaves the WebView holding keyboard focus and the host DAW stops
+            // responding to input. See IPlugWebView_mac.mm.
             mCoreWebView->AddScriptToExecuteOnDocumentCreated(
-              L"document.addEventListener('keydown', function(e) { if(document.activeElement.type != \"text\") { IPlugSendMsg({'msg': 'SKPFUI', 'keyCode': e.keyCode, 'utf8': e.key, 'S': e.shiftKey, 'C': e.ctrlKey, 'A': e.altKey, 'isUp': false}); }});",
+              L"document.addEventListener('keydown', function(e) { if(document.activeElement.type != \"text\" && e.keyCode !== 32) { IPlugSendMsg({'msg': 'SKPFUI', 'keyCode': e.keyCode, 'utf8': e.key, 'S': e.shiftKey, 'C': e.ctrlKey, 'A': e.altKey, 'isUp': false}); e.preventDefault(); }});",
               Callback<ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler>([this](HRESULT error, PCWSTR id) -> HRESULT { return S_OK; }).Get());
 
             // this script receives global key up events and forwards them to the C++ side
             mCoreWebView->AddScriptToExecuteOnDocumentCreated(
-              L"document.addEventListener('keyup', function(e) { if(document.activeElement.type != \"text\") { IPlugSendMsg({'msg': 'SKPFUI', 'keyCode': e.keyCode, 'utf8': e.key, 'S': e.shiftKey, 'C': e.ctrlKey, 'A': e.altKey, 'isUp': true}); }});",
+              L"document.addEventListener('keyup', function(e) { if(document.activeElement.type != \"text\" && e.keyCode !== 32) { IPlugSendMsg({'msg': 'SKPFUI', 'keyCode': e.keyCode, 'utf8': e.key, 'S': e.shiftKey, 'C': e.ctrlKey, 'A': e.altKey, 'isUp': true}); e.preventDefault(); }});",
               Callback<ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler>([this](HRESULT error, PCWSTR id) -> HRESULT { return S_OK; }).Get());
 
             mCoreWebView->add_WebMessageReceived(
@@ -491,11 +512,22 @@ void IWebViewImpl::EnableInteraction(bool enable)
 
 void IWebViewImpl::SetWebViewBounds(float x, float y, float w, float h, float scale)
 {
-  mWebViewBounds = GetScaledRect(x, y, w, h, GetScaleForHWND(mParentWnd));
+  // The webview always fills its host window. Use the parent's client rect in
+  // device pixels directly; DPI scaling of the *content* is handled by the
+  // controller's RasterizationScale (auto-set to the monitor scale). Re-scaling a
+  // logical size here would size the webview larger than the window and clip it.
+  if (mParentWnd)
+  {
+    GetClientRect(mParentWnd, &mWebViewBounds);
+  }
+  else
+  {
+    mWebViewBounds = GetScaledRect(x, y, w, h, 1.0f);
+  }
 
   if (mWebViewCtrlr)
   {
-    mWebViewCtrlr->SetBoundsAndZoomFactor(mWebViewBounds, scale);
+    mWebViewCtrlr->put_Bounds(mWebViewBounds);
   }
 }
 
