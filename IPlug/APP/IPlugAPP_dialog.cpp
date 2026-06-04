@@ -561,7 +561,18 @@ WDL_DLGRET IPlugAPPHost::MainDlgProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPA
         DBGMSG("couldn't attach gui\n");
       }
 
+#if defined OS_WIN && defined NO_IGRAPHICS
+      // WebView UIs render their content at the monitor DPI scale, so the window
+      // client must be sized in device pixels (editor size * scale) for the content
+      // to fit without clipping. (IGraphics handles its own DPI sizing.)
+      {
+        const float scale = GetScaleForHWND(hwndDlg);
+        ClientResize(hwndDlg, static_cast<int>(pPlug->GetEditorWidth() * scale),
+                              static_cast<int>(pPlug->GetEditorHeight() * scale));
+      }
+#else
       ClientResize(hwndDlg, pPlug->GetEditorWidth(), pPlug->GetEditorHeight());
+#endif
 
       ShowWindow(hwndDlg, SW_SHOW);
 
