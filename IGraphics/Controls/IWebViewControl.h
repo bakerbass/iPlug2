@@ -118,13 +118,27 @@ public:
     IControl::Hide(hide);
   }
 
-private:
+protected:
+  // Position the embedded webview over this control's rect. The platform backends expect
+  // different units: WebView2 put_Bounds (Windows) wants DEVICE pixels (logical * total scale),
+  // while WKWebView setFrame (macOS) wants POINTS (logical * draw scale; the screen/backing scale
+  // is applied by the OS). Getting this wrong sizes the webview by the DPI factor (e.g. quarter
+  // size on a 2x display) or makes it cover sibling IGraphics controls.
   void UpdateWebViewBounds()
   {
-    auto ds = GetUI()->GetDrawScale();
-    SetWebViewBounds(mRECT.L * ds, mRECT.T * ds, mRECT.W() * ds, mRECT.H() * ds, ds);
+    auto* ui = GetUI();
+    if (!ui)
+      return;
+    const float ds = ui->GetDrawScale();
+#ifdef OS_WIN
+    const float s = ui->GetTotalScale();
+#else
+    const float s = ds;
+#endif
+    SetWebViewBounds(mRECT.L * s, mRECT.T * s, mRECT.W() * s, mRECT.H() * s, ds);
   }
-  
+
+private:
   void* mPlatformView = nullptr;
   OnReadyFunc mOnReadyFunc;
   OnMessageFunc mOnMessageFunc;

@@ -538,18 +538,16 @@ void IWebViewImpl::EnableInteraction(bool enable)
 
 void IWebViewImpl::SetWebViewBounds(float x, float y, float w, float h, float scale)
 {
-  // The webview always fills its host window. Use the parent's client rect in
-  // device pixels directly; DPI scaling of the *content* is handled by the
-  // controller's RasterizationScale (auto-set to the monitor scale). Re-scaling a
-  // logical size here would size the webview larger than the window and clip it.
-  if (mParentWnd)
-  {
-    GetClientRect(mParentWnd, &mWebViewBounds);
-  }
-  else
-  {
-    mWebViewBounds = GetScaledRect(x, y, w, h, 1.0f);
-  }
+  // Use the bounds passed by the caller — device pixels in both cases. Full-window editors pass
+  // (0, 0, clientW, clientH) so the webview fills the host window; an embedded IWebViewControl
+  // passes its own sub-rect (mRECT * drawScale) so it occupies ONLY that region and does not cover
+  // the surrounding IGraphics controls (e.g. Petal's / Boing's native knobs). Content DPI scaling
+  // is handled by the controller's RasterizationScale (auto-set to the monitor scale), so we must
+  // not re-scale the size here.
+  mWebViewBounds.left = static_cast<LONG>(x);
+  mWebViewBounds.top = static_cast<LONG>(y);
+  mWebViewBounds.right = static_cast<LONG>(x + w);
+  mWebViewBounds.bottom = static_cast<LONG>(y + h);
 
   if (mWebViewCtrlr)
   {
