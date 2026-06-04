@@ -116,6 +116,8 @@ void IGraphics::Resize(int w, int h, float scale, bool needsPlatformResize)
   
   if(mLayoutOnResize)
     GetDelegate()->LayoutUI(this);
+
+  PostResize();
 }
 
 void IGraphics::SetLayoutOnResize(bool layoutOnResize)
@@ -201,7 +203,7 @@ void IGraphics::RemoveAllControls()
   mCornerResizer = nullptr;
   mPerfDisplay = nullptr;
     
-#ifndef NDEBUG
+#if !defined(NDEBUG) || defined(IPLUG_LIVE_EDIT)
   mLiveEdit = nullptr;
 #endif
   
@@ -557,7 +559,7 @@ void IGraphics::ForAllControlsFunc(IControlFunction func)
   if (mPerfDisplay)
     func(mPerfDisplay.get());
   
-#ifndef NDEBUG
+#if !defined(NDEBUG) || defined(IPLUG_LIVE_EDIT)
   if (mLiveEdit)
     func(mLiveEdit.get());
 #endif
@@ -1307,7 +1309,7 @@ int IGraphics::GetMouseControlIdx(float x, float y, bool mouseOver)
     {
       IControl* pControl = GetControl(c);
 
-#ifndef NDEBUG
+#if !defined(NDEBUG) || defined(IPLUG_LIVE_EDIT)
       if(!mLiveEdit)
       {
 #endif
@@ -1321,7 +1323,7 @@ int IGraphics::GetMouseControlIdx(float x, float y, bool mouseOver)
             }
           }
         }
-#ifndef NDEBUG
+#if !defined(NDEBUG) || defined(IPLUG_LIVE_EDIT)
       }
       else if (pControl->GetRECT().Contains(x, y) && pControl->GetParent() == nullptr)
       {
@@ -1357,7 +1359,7 @@ IControl* IGraphics::GetMouseControl(float x, float y, bool capture, bool mouseO
     pControl = mTextEntryControl.get();
   
   
-#if !defined(NDEBUG)
+#if !defined(NDEBUG) || defined(IPLUG_LIVE_EDIT)
   if (!pControl && mLiveEdit)
     pControl = mLiveEdit.get();
 #endif
@@ -1548,7 +1550,7 @@ void IGraphics::EnableTooltips(bool enable)
 
 void IGraphics::EnableLiveEdit(bool enable)
 {
-#ifndef NDEBUG
+#if !defined(NDEBUG) || defined(IPLUG_LIVE_EDIT)
   if (enable)
   {
     if (!mLiveEdit)
