@@ -5,7 +5,8 @@ description: Validate iPlug2 plugin builds using format-specific validators (auv
 
 # Validate iPlug2 Plugin
 
-Validate a built plugin using format-specific validation tools. Plugin must have been built prior to using this skill.
+Validate a built plugin using format-specific validation tools. Plug-
+in must have been built prior to using this skill.
 
 ## Arguments
 
