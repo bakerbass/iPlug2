@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This is the iPlug2 framework repository. Upstream: https://github.com/iPlug2/iPlug2.git
+This is the iPlug2 framework repository, forked particularly for development of RBFX plugins by Ryan Baker. Upstream: https://github.com/iPlug2/iPlug2.git
 
 ## Instructions
 
@@ -28,6 +28,7 @@ Cross-platform C++ audio plugin framework with two main components:
 ├── IGraphics/Drawing   # Drawing implementations (NanoVG, Skia)
 ├── Dependencies/       # Third-party libs/SDKs (don't modify)
 ├── Examples/           # Template projects
+├── MyProjects/         # User created projects
 ├── Tests/              # Framework test projects
 ├── WDL/                # Cockos WDL (don't modify)
 ├── Scripts/            # Build utilities
@@ -38,6 +39,8 @@ Cross-platform C++ audio plugin framework with two main components:
 ## Key Concepts
 
 - Three main files per project: `Plugin.cpp`, `Plugin.h`, `config.h`
+  - DSP and GUI source located in respective subdirectories
+  - set Plugin Manufacturer in config to RBFX
 - `ProcessBlock` must be realtime-safe (no allocations, locks, file I/O)
 - Parameters: fixed count at compile time, indexed by enum, non-normalized values
 - Use `GetParam(kIndex)->Value()` for parameter access
@@ -58,6 +61,16 @@ Cross-platform C++ audio plugin framework with two main components:
 - Internal methods: `_methodName`
 - Use C++17 (`override`, `final`, `auto`, `std::optional`, `std::string_view`)
 - Avoid STL in core code; prefer WDL alternatives
+
+## Windows Plugin Resources (VST3/CLAP)
+
+iPlug2's CMake only packages resources for macOS bundles (`MACOSX_PACKAGE_LOCATION`). On Windows:
+- **Fonts and web files are NOT copied** into VST3/CLAP bundles automatically.
+- The standalone APP embeds them via `main.rc` (Win32 binary resources) — that's the only format that works without extra steps.
+- **Always add post-build `cmake -E copy_if_different` commands** to copy fonts (`resources/fonts/`) and web files (`resources/web/`) to `Contents/Resources/` in the VST3 bundle — both the build output path AND the deploy path (`$ENV{LOCALAPPDATA}/Programs/Common/VST3/`).
+- **Font loading in plugin builds**: add `main.rc` to the VST3/CLAP targets in CMakeLists.txt (with `/I` includes for the fonts dir). The `.rc` file embeds fonts as Win32 binary resources in the DLL — `LocateResource` finds them via `kWinBinary` and `pGraphics->LoadFont("Roboto-Regular", ROBOTO_FN)` works unchanged. **Do NOT** use `BundleResourcePath()` for fonts — with no HMODULE it returns the host app's path, not the plugin DLL path.
+- **`IWebViewControl::LoadFile` vs `LoadURL`**: `LoadFile` calls `SetVirtualHostNameToFolderMapping` which requires `ICoreWebView2_3` — if the installed WebView2 runtime is older, the virtual host silently fails and you get "iplug.example server not found". **Always use `LoadURL("file:///absolute/path/to/index.html")` instead** — works on all WebView2 versions, supports `postMessage`, no CORS issues for same-origin JS files.
+- See `MyProjects/Petal/.claude/lesson.md` for the canonical fix pattern.
 
 ## Resources
 
