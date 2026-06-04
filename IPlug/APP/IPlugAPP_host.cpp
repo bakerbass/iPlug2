@@ -17,6 +17,12 @@
 
 #include "IPlugLogger.h"
 
+#include <vector>
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <fstream>
+
 using namespace iplug;
 
 #ifndef MAX_PATH_LEN
@@ -81,6 +87,105 @@ bool IPlugAPPHost::OpenWindow(HWND pParent)
 void IPlugAPPHost::CloseWindow()
 {
   mIPlug->CloseWindow();
+}
+
+// Headless offline level measurement for the shared audio test suite. Drives the plugin's real DSP
+// at its default state with a standardized stimulus and writes peak/RMS/gain JSON to mMeasurePath.
+//  - Effects (nIn > 0): deterministic white noise, input normalized to exactly -18 dBFS RMS.
+//  - Instruments (nIn == 0): a sustained MIDI note (C4).
+// An initial settle window (0.5 s + reported latency) is skipped before measuring.
+void IPlugAPPHost::RunOfflineMeasurement()
+{
+  IPlugAPP* p = GetPlug();
+  if (!p || mMeasurePath.GetLength() == 0)
+    return;
+
+  const double sr = 48000.0;
+  const int blk = APP_SIGNAL_VECTOR_SIZE;
+  p->SetSampleRate(sr);
+  p->SetBlockSize(blk);
+  p->OnActivate(true);
+  p->OnReset();
+
+  const int nIn = p->MaxNChannels(ERoute::kInput);
+  const int nOut = p->MaxNChannels(ERoute::kOutput);
+  const bool isInstrument = (nIn == 0);
+  const int maxCh = std::max(1, std::max(nIn, nOut));
+
+  std::vector<std::vector<double>> inBuf(maxCh, std::vector<double>(blk, 0.0));
+  std::vector<std::vector<double>> outBuf(maxCh, std::vector<double>(blk, 0.0));
+  std::vector<double*> inPtrs(maxCh), outPtrs(maxCh);
+  for (int c = 0; c < maxCh; ++c) { inPtrs[c] = inBuf[c].data(); outPtrs[c] = outBuf[c].data(); }
+
+  const double totalSec = 3.0;
+  const int totalBlocks = (int) std::ceil(totalSec * sr / blk);
+  const int settleBlocks = (int)((0.5 * sr + p->GetLatency()) / blk) + 1;
+
+  const double inTargetRms = std::pow(10.0, -18.0 / 20.0); // -18 dBFS RMS reference
+  uint32_t seed = 0x12345678u;
+  auto nextNoise = [&seed]() -> double {
+    seed = seed * 1664525u + 1013904223u;
+    return ((double) seed / 2147483648.0) - 1.0; // ~[-1, 1)
+  };
+
+  if (isInstrument)
+  {
+    IMidiMsg noteOn;
+    noteOn.MakeNoteOnMsg(60, 100, 0); // C4, velocity 100
+    p->mMidiMsgsFromCallback.Push(noteOn);
+  }
+
+  double outSumSq = 0.0, outPeak = 0.0, inSumSq = 0.0;
+  long long outCount = 0, inCount = 0;
+
+  for (int b = 0; b < totalBlocks; ++b)
+  {
+    if (!isInstrument)
+    {
+      double blkSq = 0.0;
+      for (int s = 0; s < blk; ++s) { double v = nextNoise(); inBuf[0][s] = v; blkSq += v * v; }
+      const double rms = std::sqrt(blkSq / blk);
+      const double g = (rms > 0.0) ? inTargetRms / rms : 0.0;
+      for (int s = 0; s < blk; ++s)
+      {
+        inBuf[0][s] *= g;
+        for (int c = 1; c < nIn; ++c) inBuf[c][s] = inBuf[0][s];
+      }
+    }
+    for (int c = 0; c < maxCh; ++c) std::fill(outBuf[c].begin(), outBuf[c].end(), 0.0);
+
+    p->AppProcess(inPtrs.data(), outPtrs.data(), blk);
+
+    if (b >= settleBlocks)
+    {
+      for (int c = 0; c < nOut; ++c)
+        for (int s = 0; s < blk; ++s)
+        {
+          const double o = outBuf[c][s];
+          outSumSq += o * o; ++outCount;
+          const double a = std::fabs(o);
+          if (a > outPeak) outPeak = a;
+        }
+      if (!isInstrument)
+        for (int s = 0; s < blk; ++s) { const double v = inBuf[0][s]; inSumSq += v * v; ++inCount; }
+    }
+  }
+
+  auto toDb = [](double lin) { return lin > 1e-9 ? 20.0 * std::log10(lin) : -150.0; };
+  const double outRmsDb = toDb(outCount ? std::sqrt(outSumSq / outCount) : 0.0);
+  const double peakDb = toDb(outPeak);
+  const double inRmsDb = (!isInstrument && inCount) ? toDb(std::sqrt(inSumSq / inCount)) : -150.0;
+  const double gainDb = isInstrument ? 0.0 : (outRmsDb - inRmsDb);
+
+  WDL_String json;
+  json.SetFormatted(1024,
+    "{\"name\":\"%s\",\"type\":\"%s\",\"samplerate\":%d,\"n_in\":%d,\"n_out\":%d,"
+    "\"in_rms_dbfs\":%.2f,\"out_rms_dbfs\":%.2f,\"out_peak_dbfs\":%.2f,\"gain_db\":%.2f,\"latency\":%d}\n",
+    p->GetPluginName(), isInstrument ? "instrument" : "effect", (int) sr, nIn, nOut,
+    inRmsDb, outRmsDb, peakDb, gainDb, p->GetLatency());
+
+  std::ofstream f(mMeasurePath.Get(), std::ios::binary);
+  if (f) f << json.Get();
 }
 
 bool IPlugAPPHost::InitState()

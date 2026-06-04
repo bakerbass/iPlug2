@@ -171,6 +171,16 @@ public:
    * @return true if a screenshot should be taken and app should exit */
   bool IsScreenshotMode() const { return mScreenshotPath.GetLength() > 0; }
 
+  /** Set offline level-measurement output path for CLI --measure mode (empty to disable) */
+  void SetMeasurePath(const char* path) { mMeasurePath.Set(path); }
+
+  /** @return true if --measure was given (run RunOfflineMeasurement then exit) */
+  bool IsMeasureMode() const { return mMeasurePath.GetLength() > 0; }
+
+  /** Headless: drive the plugin's DSP at its default state with a standard stimulus and
+   *  write peak/RMS/gain JSON to the --measure path. Used by the shared audio test suite. */
+  void RunOfflineMeasurement();
+
   /** Set no-I/O mode (disables audio and MIDI initialization)
    * @param noIO true to disable I/O */
   void SetNoIO(bool noIO) { mNoIO = noIO; }
@@ -263,6 +273,7 @@ private:
     
   WDL_String mINIPath;
   WDL_String mScreenshotPath;
+  WDL_String mMeasurePath;
 
   std::vector<uint32_t> mAudioInputDevIDs;
   std::vector<uint32_t> mAudioOutputDevIDs;

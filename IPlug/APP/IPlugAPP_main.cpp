@@ -170,6 +170,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpszCmdPa
         {
           pAppHost->SetNoIO(true);
         }
+        else if (strcmp(token, "--measure") == 0)
+        {
+          token = strtok(nullptr, " ");
+          if (token)
+          {
+            pAppHost->SetMeasurePath(token);
+            pAppHost->SetNoIO(true);
+          }
+        }
         token = strtok(nullptr, " ");
       }
       free(args);
@@ -181,6 +190,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpszCmdPa
 
     pAppHost->Init();
     pAppHost->TryToChangeAudio();
+
+    // Headless level measurement for the audio test suite: run and exit, no window.
+    // ExitProcess avoids the normal static-teardown path (which crashes when the app never
+    // opened a window/audio stream) and guarantees a clean exit code for the test runner.
+    if (pAppHost->IsMeasureMode())
+    {
+      pAppHost->RunOfflineMeasurement();
+#ifndef APP_ALLOW_MULTIPLE_INSTANCES
+      ReleaseMutex(hMutex);
+#endif
+      ExitProcess(0);
+    }
 
     HACCEL hAccel = LoadAccelerators(gHINSTANCE, MAKEINTRESOURCE(IDR_ACCELERATOR1));
 
