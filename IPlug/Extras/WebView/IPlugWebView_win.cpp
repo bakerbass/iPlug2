@@ -110,6 +110,24 @@ IWebViewImpl::~IWebViewImpl()
   CloseWebView();
 }
 
+// Shown once per process if the Edge WebView2 Runtime is missing/unusable. Without it the
+// WebView silently stays blank (and we'd otherwise deref a null environment). See
+// https://developer.microsoft.com/microsoft-edge/webview2/
+static void ShowWebView2RuntimeError(HWND parent)
+{
+  static bool sShown = false;
+  if (sShown)
+    return;
+  sShown = true;
+  MessageBoxW(parent,
+    L"This plugin's interface requires the Microsoft Edge WebView2 Runtime, which does not "
+    L"appear to be installed.\n\n"
+    L"Install it (free) from:\n"
+    L"https://developer.microsoft.com/microsoft-edge/webview2/\n\n"
+    L"Then reopen the plugin window.",
+    L"WebView2 Runtime required", MB_OK | MB_ICONWARNING);
+}
+
 void* IWebViewImpl::OpenWebView(void* pParent, float,float,float,float,float)
 {
   mParentWnd = (HWND)pParent;
@@ -126,11 +144,16 @@ void* IWebViewImpl::OpenWebView(void* pParent, float,float,float,float,float)
   // options->put_Language(m_language.c_str());
   options->put_IsCustomCrashReportingEnabled(FALSE);
 
-  CreateCoreWebView2EnvironmentWithOptions(
+  const HRESULT envHR = CreateCoreWebView2EnvironmentWithOptions(
     nullptr, cachePathWide.data(), options.Get(),
     Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>([&](
                                                                            HRESULT result,
                                                                            ICoreWebView2Environment* env) -> HRESULT {
+      if (FAILED(result) || env == nullptr)
+      {
+        ShowWebView2RuntimeError(mParentWnd);
+        return result;
+      }
       mWebViewEnvironment = env;
 
       mWebViewEnvironment->CreateCoreWebView2Controller(
@@ -386,6 +409,9 @@ void* IWebViewImpl::OpenWebView(void* pParent, float,float,float,float,float)
 
       return S_OK;
     }).Get());
+
+  if (FAILED(envHR))
+    ShowWebView2RuntimeError(mParentWnd);
 
   return mParentWnd;
 }
